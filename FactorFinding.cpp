@@ -3,22 +3,26 @@
 
 #define CHUNK_SIZE 20000000 //b
 #define CHUNK_DURATION 10 //Seconds
-#define VIDEO_BUFFER_SIZE 20 //Seconds
-#define CAPACITY 100000000 //Mb
+#define VIDEO_BUFFER_SIZE 120 //Seconds
+#define CAPACITY 800000000 //Mb
 #define TICKS_PER_SEC 100
 #define MEASUREMENT_DURATION 10 //Seconds
-#define EXPERIMENT_DURATION 3600 //Seconds
+#define EXPERIMENT_DURATION 10800 //Seconds
 
 
-int active_amount = 0;
-int stall_duration = 0;
+long active_amount = 0;
+long stall_duration = 0;
+long throughput = 0;
+long tick;
+long measurement_ratio = 6;
+
 class VideoInstance
 {
     public:
-    int duration; //ticks
-    int current_time; //ticks
-    int buffered; //ticks 
-    int chunk_progress; //Mb
+    long duration; //ticks
+    long current_time; //ticks
+    long buffered; //ticks 
+    long chunk_progress; //Mb
     bool active;
     bool done;
 
@@ -28,8 +32,11 @@ class VideoInstance
         if(active)
         {
             chunk_progress+=(CAPACITY/(active_amount*TICKS_PER_SEC));
+            throughput+=(CAPACITY/(active_amount*TICKS_PER_SEC));
             if(chunk_progress>=CHUNK_SIZE)
             {
+                if(buffered>(2*VIDEO_BUFFER_SIZE*TICKS_PER_SEC))
+                    printf("%d\n",buffered);
                 buffered+=(chunk_progress/CHUNK_SIZE)*CHUNK_DURATION*TICKS_PER_SEC;
                 chunk_progress = chunk_progress%CHUNK_SIZE;
             }
@@ -55,7 +62,7 @@ class VideoInstance
             active = true;
     };
 
-    VideoInstance(int Duration)
+    VideoInstance(long Duration)
     {
         active = true;
         chunk_progress = 0;
@@ -66,19 +73,24 @@ class VideoInstance
     };
     ~VideoInstance(){};
 };
-int tick;
-int measurement_ratio = 6;
 int main(int argc, char ** argv)
 {
-    int measured;
+    long measured;
     float acquired_ratio_cumulative = 0;
-    int number_of_measurements =0;
+    long number_of_measurements =0;
     std::vector<VideoInstance> videos;
-    for(int i = 0; i< 10;i++)
-        videos.push_back(VideoInstance(3600));
 
     for(tick=0;tick<EXPERIMENT_DURATION*TICKS_PER_SEC;tick++)
     {
+        if(!(tick%(21*TICKS_PER_SEC)))
+            for(long i = 0; i< 10;i++)
+                videos.push_back(VideoInstance(300));
+        if(!(tick%(81*TICKS_PER_SEC)))
+            for(long i = 0; i< 10;i++)
+                videos.push_back(VideoInstance(1200));
+        if(!(tick%(321*TICKS_PER_SEC)))
+            for(long i = 0; i< 10;i++)
+                videos.push_back(VideoInstance(2400));
         active_amount =0;
         for (std::vector<VideoInstance>::iterator it = videos.begin() ; it != videos.end(); ++it)
             it->count_active();
@@ -90,12 +102,14 @@ int main(int argc, char ** argv)
             measured+=CAPACITY/(active_amount*TICKS_PER_SEC);
             if(!((tick+1-(MEASUREMENT_DURATION*TICKS_PER_SEC))%(measurement_ratio*MEASUREMENT_DURATION*TICKS_PER_SEC)))
             {
-                if(videos.size())
-                {
-                    acquired_ratio_cumulative+=(float) (videos.size()*(CHUNK_SIZE/CHUNK_DURATION))/(measured/MEASUREMENT_DURATION);
-                    number_of_measurements++;
-                    printf("Measured: %d bps. Videos: %d\n",measured/MEASUREMENT_DURATION,videos.size());
-                }
+                //float ratio = (float) (measured/MEASUREMENT_DURATION)/(CAPACITY-(videos.size()*(CHUNK_SIZE/CHUNK_DURATION)));
+                long goodput = throughput/(MEASUREMENT_DURATION*measurement_ratio);
+                float ratio = (float) (measured/MEASUREMENT_DURATION)/(CAPACITY-goodput);
+                acquired_ratio_cumulative+=ratio;
+                number_of_measurements++;
+                //printf("Throughput: %ld\n",throughput/(MEASUREMENT_DURATION*measurement_ratio));
+                throughput = 0;
+                printf("Ratio: %f \tMeasured: %10ld bps \tActual: %10ld \t%.2f%\n", ratio,measured/MEASUREMENT_DURATION,(CAPACITY-goodput),(float)(100)*(CAPACITY-goodput)/CAPACITY);
             }
         }
         for (std::vector<VideoInstance>::iterator it = videos.begin() ; it != videos.end(); ++it)
@@ -103,11 +117,6 @@ int main(int argc, char ** argv)
         for (std::vector<VideoInstance>::iterator it = videos.end() ; it != videos.begin(); --it)
             if(it->done)
                 videos.erase(it);
-        //if((active_amount<10)&&(!(tick%100)))
-        //{getchar();
-        //    printf("tick:%d\n",tick);
-        //    printf("Videos: %d/%d\n",active_amount,videos.size());
-        //}
     }
     printf("Total Stall Duration: %d seconds\n",stall_duration/TICKS_PER_SEC);
     printf("Acquired Ratio: %.2f\n",(float)acquired_ratio_cumulative/number_of_measurements);
